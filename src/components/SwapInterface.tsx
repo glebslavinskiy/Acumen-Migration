@@ -13,19 +13,16 @@ const SwapInterface: React.FC = () => {
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
-  const [swapDirection, setSwapDirection] = useState<"stakingToResal" | "resalToStaking">("stakingToResal");
   const [transactionStatus, setTransactionStatus] = useState<"preview" | "pending" | "success">("preview");
 
-  const fromToken = swapDirection === "stakingToResal" 
-    ? { symbol: "SCT", name: "Staking Collateral Token" } 
-    : { symbol: "RCT", name: "RESAL Collateral Token" };
+  // Always set to stakingToResal, and don't allow toggling
+  const swapDirection = "stakingToResal";
   
-  const toToken = swapDirection === "stakingToResal" 
-    ? { symbol: "RCT", name: "RESAL Collateral Token" } 
-    : { symbol: "SCT", name: "Staking Collateral Token" };
+  const fromToken = { symbol: "SCT", name: "Staking Collateral Token" };
+  const toToken = { symbol: "RCT", name: "RESAL Collateral Token" };
 
-  const fromBalance = swapDirection === "stakingToResal" ? balance.staking : balance.resal;
-  const toBalance = swapDirection === "stakingToResal" ? balance.resal : balance.staking;
+  const fromBalance = balance.staking;
+  const toBalance = balance.resal;
 
   const handleFromAmountChange = (value: string) => {
     setFromAmount(value);
@@ -39,10 +36,9 @@ const SwapInterface: React.FC = () => {
     setFromAmount((numValue / 0.82).toFixed(4));
   };
 
+  // This function is now empty as we don't need to toggle direction
   const handleSwapDirection = () => {
-    setSwapDirection(prev => prev === "stakingToResal" ? "resalToStaking" : "stakingToResal");
-    setFromAmount(toAmount);
-    setToAmount(fromAmount);
+    // Direction is fixed to stakingToResal
   };
 
   const handleSwapClick = () => {
@@ -100,9 +96,9 @@ const SwapInterface: React.FC = () => {
       <Card className="w-full max-w-md mx-auto bg-black border border-gray-800 text-white">
         <CardHeader>
           <CardTitle className="text-xl text-white">Swap Tokens</CardTitle>
-          <CardDescription className="text-gray-400">Exchange between Staking and RESAL tokens</CardDescription>
+          <CardDescription className="text-gray-400">Exchange Staking tokens for RESAL tokens</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative">
           <TokenInput
             label="From"
             value={fromAmount}
@@ -112,7 +108,9 @@ const SwapInterface: React.FC = () => {
             disabled={!isConnected}
           />
           
-          <SwapButton onClick={handleSwapDirection} />
+          <div className="h-10" />
+          
+          <SwapButton />
           
           <TokenInput
             label="To"
@@ -120,7 +118,7 @@ const SwapInterface: React.FC = () => {
             onChange={handleToAmountChange}
             token={toToken}
             balance={isConnected ? toBalance : undefined}
-            disabled={!isConnected}
+            disabled={true} // Always disable "to" input
           />
 
           {isConnected && fromAmount && toAmount && (

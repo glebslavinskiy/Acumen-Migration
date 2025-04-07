@@ -12,7 +12,7 @@ const Index = () => {
             Token Swap
           </h1>
           <p className="text-gray-400 max-w-md">
-            Easily swap between Staking Collateral Token and RESAL Collateral Token
+            Exchange Staking Collateral Token for RESAL Collateral Token
           </p>
         </header>
         
