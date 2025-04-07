@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +26,6 @@ const SwapInterface: React.FC = () => {
   const fromBalance = swapDirection === "stakingToResal" ? balance.staking : balance.resal;
   const toBalance = swapDirection === "stakingToResal" ? balance.resal : balance.staking;
 
-  // Calculate the equivalent amount based on a mock rate (0.82 for this example)
   const handleFromAmountChange = (value: string) => {
     setFromAmount(value);
     const numValue = parseFloat(value) || 0;
@@ -42,7 +40,6 @@ const SwapInterface: React.FC = () => {
 
   const handleSwapDirection = () => {
     setSwapDirection(prev => prev === "stakingToResal" ? "resalToStaking" : "stakingToResal");
-    // Swap the amounts too
     setFromAmount(toAmount);
     setToAmount(fromAmount);
   };
@@ -82,11 +79,9 @@ const SwapInterface: React.FC = () => {
   const handleConfirmSwap = () => {
     setTransactionStatus("pending");
     
-    // Simulate transaction processing time
     setTimeout(() => {
       setTransactionStatus("success");
       
-      // Close modal after showing success state briefly
       setTimeout(() => {
         setIsSwapModalOpen(false);
         setFromAmount("");
@@ -101,10 +96,10 @@ const SwapInterface: React.FC = () => {
 
   return (
     <>
-      <Card className="w-full max-w-md mx-auto">
+      <Card className="w-full max-w-md mx-auto bg-white dark:bg-black border border-gray-200 dark:border-gray-800">
         <CardHeader>
-          <CardTitle className="text-xl">Swap Tokens</CardTitle>
-          <CardDescription>Exchange between Staking and RESAL tokens</CardDescription>
+          <CardTitle className="text-xl text-black dark:text-white">Swap Tokens</CardTitle>
+          <CardDescription className="text-gray-500 dark:text-gray-400">Exchange between Staking and RESAL tokens</CardDescription>
         </CardHeader>
         <CardContent>
           <TokenInput
@@ -128,14 +123,14 @@ const SwapInterface: React.FC = () => {
           />
 
           {isConnected && fromAmount && toAmount && (
-            <div className="mt-4 bg-secondary rounded-md p-3">
+            <div className="mt-4 bg-gray-100 dark:bg-gray-800 rounded-md p-3">
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Rate</span>
-                <span>1 {fromToken.symbol} ≈ 0.82 {toToken.symbol}</span>
+                <span className="text-gray-500 dark:text-gray-400">Rate</span>
+                <span className="text-black dark:text-white">1 {fromToken.symbol} ≈ 0.82 {toToken.symbol}</span>
               </div>
               <div className="flex justify-between text-sm mt-1">
-                <span className="text-muted-foreground">Estimated Fee</span>
-                <span>0.3%</span>
+                <span className="text-gray-500 dark:text-gray-400">Estimated Fee</span>
+                <span className="text-black dark:text-white">0.3%</span>
               </div>
             </div>
           )}
@@ -143,7 +138,7 @@ const SwapInterface: React.FC = () => {
         <CardFooter>
           <Button 
             onClick={handleSwapClick} 
-            className="w-full bg-gradient-defi hover:opacity-90 transition-opacity"
+            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
             disabled={!isConnected || !fromAmount || parseFloat(fromAmount) <= 0}
           >
             {isConnected ? "Swap" : "Connect Wallet to Swap"}
