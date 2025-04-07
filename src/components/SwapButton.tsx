@@ -1,6 +1,6 @@
 
 import { Button } from "@/components/ui/button";
-import { Swap } from "lucide-react";
+import { ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SwapButtonProps {
@@ -17,7 +17,7 @@ const SwapButton = ({ onClick, className }: SwapButtonProps) => {
         className="rounded-full h-10 w-10 bg-background border-2 p-0 shadow-md"
         onClick={onClick}
       >
-        <Swap className="h-5 w-5 text-accent" />
+        <ArrowUpDown className="h-5 w-5 text-accent" />
       </Button>
     </div>
   );
