@@ -1,3 +1,4 @@
+
 import React, { useState } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -96,10 +97,10 @@ const SwapInterface: React.FC = () => {
 
   return (
     <>
-      <Card className="w-full max-w-md mx-auto bg-white dark:bg-black border border-gray-200 dark:border-gray-800">
+      <Card className="w-full max-w-md mx-auto bg-black border border-gray-800 text-white">
         <CardHeader>
-          <CardTitle className="text-xl text-black dark:text-white">Swap Tokens</CardTitle>
-          <CardDescription className="text-gray-500 dark:text-gray-400">Exchange between Staking and RESAL tokens</CardDescription>
+          <CardTitle className="text-xl text-white">Swap Tokens</CardTitle>
+          <CardDescription className="text-gray-400">Exchange between Staking and RESAL tokens</CardDescription>
         </CardHeader>
         <CardContent>
           <TokenInput
@@ -123,14 +124,14 @@ const SwapInterface: React.FC = () => {
           />
 
           {isConnected && fromAmount && toAmount && (
-            <div className="mt-4 bg-gray-100 dark:bg-gray-800 rounded-md p-3">
+            <div className="mt-4 bg-gray-900 rounded-md p-3">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">Rate</span>
-                <span className="text-black dark:text-white">1 {fromToken.symbol} ≈ 0.82 {toToken.symbol}</span>
+                <span className="text-gray-400">Rate</span>
+                <span className="text-white">1 {fromToken.symbol} ≈ 0.82 {toToken.symbol}</span>
               </div>
               <div className="flex justify-between text-sm mt-1">
-                <span className="text-gray-500 dark:text-gray-400">Estimated Fee</span>
-                <span className="text-black dark:text-white">0.3%</span>
+                <span className="text-gray-400">Estimated Fee</span>
+                <span className="text-white">0.3%</span>
               </div>
             </div>
           )}
@@ -138,7 +139,7 @@ const SwapInterface: React.FC = () => {
         <CardFooter>
           <Button 
             onClick={handleSwapClick} 
-            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors"
+            className="w-full bg-white text-black hover:bg-gray-200 transition-colors"
             disabled={!isConnected || !fromAmount || parseFloat(fromAmount) <= 0}
           >
             {isConnected ? "Swap" : "Connect Wallet to Swap"}
