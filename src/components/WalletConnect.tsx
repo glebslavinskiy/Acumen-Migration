@@ -17,10 +17,15 @@ declare global {
   }
 }
 
+// Helper function to format address
+const formatAddress = (address: string) => {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
 export function WalletConnect() {
   const { address, isConnected } = useAccount()
   const { open } = useWeb3Modal()
-  const { disconnectAsync } = useDisconnect()
+  const { disconnect } = useDisconnect()
   const [isLoading, setIsLoading] = useState(false)
 
   // Check if we need to disconnect on mount
@@ -33,62 +38,59 @@ export function WalletConnect() {
     }
   }, [isConnected])
 
-  const handleDisconnect = useCallback(async () => {
+  const handleDisconnect = async () => {
     try {
-      setIsLoading(true)
-      await disconnectAsync()
-
-      // Set flag to prevent auto-reconnect
-      localStorage.setItem('should_disconnect', 'true')
-
-      // Clear any stored wallet data
-      const keysToRemove = Object.keys(localStorage).filter(key => 
-        key.startsWith('wc@2:') || 
-        key.startsWith('w3m_') || 
-        key.startsWith('wagmi') ||
-        key.includes('walletconnect')
-      )
-
+      // Clear any stored data
+      const keysToRemove = ['wagmi.cache', 'wagmi.connected', 'wagmi.wallet']
       keysToRemove.forEach(key => {
         try {
           localStorage.removeItem(key)
-          sessionStorage.removeItem(key)
         } catch (e) {
-          console.warn(`Failed to clear ${key}:`, e)
+          // Ignore errors
         }
       })
+
+      // Disconnect wallet
+      await disconnect()
+
+      // Set flag to prevent auto-reconnect
+      localStorage.setItem('should_disconnect', 'true')
 
       toast({
         title: "Wallet Disconnected",
         description: "Successfully disconnected from your wallet",
       })
     } catch (error) {
-      console.error('Error during wallet disconnection:', error)
       toast({
         variant: "destructive",
-        title: "Error Disconnecting",
-        description: "Failed to disconnect from your wallet. Please try again.",
+        title: "Disconnection Error",
+        description: error instanceof Error ? error.message : "Failed to disconnect wallet",
       })
-    } finally {
-      setIsLoading(false)
     }
-  }, [disconnectAsync])
-
-  const handleConnect = () => {
-    // Clear the disconnect flag when user initiates connection
-    localStorage.removeItem('should_disconnect')
-    open()
   }
 
-  if (isConnected) {
+  const handleConnect = async () => {
+    try {
+      // Clear the disconnect flag when user initiates connection
+      localStorage.removeItem('should_disconnect')
+      await open()
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Connection Error",
+        description: error instanceof Error ? error.message : "Failed to connect wallet",
+      })
+    }
+  }
+
+  if (isConnected && address) {
     return (
-      <div className="flex flex-col items-center gap-2">
-        <div className="text-sm text-gray-400">Connected to</div>
-        <div className="font-mono text-sm">{address}</div>
+      <div className="flex items-center gap-4">
+        <span className="text-gray-400 hidden md:inline">{formatAddress(address)}</span>
         <Button 
           onClick={handleDisconnect}
           variant="outline"
-          className="mt-2"
+          className="bg-transparent text-white border-gray-700 hover:bg-gray-800 hover:text-white"
           disabled={isLoading}
         >
           {isLoading ? 'Disconnecting...' : 'Disconnect'}
@@ -98,14 +100,12 @@ export function WalletConnect() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Button
-        onClick={handleConnect}
-        className="relative w-full"
-        disabled={isLoading}
-      >
-        Connect Wallet
-      </Button>
-    </div>
+    <Button
+      onClick={handleConnect}
+      className="bg-white text-black hover:bg-gray-200 transition-colors"
+      disabled={isLoading}
+    >
+      Connect Wallet
+    </Button>
   )
 }

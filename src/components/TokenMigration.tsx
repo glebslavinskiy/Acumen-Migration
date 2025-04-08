@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
-import { useAccount, useContractRead, useContractWrite, useWaitForTransactionReceipt, type BaseError } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
-import { COLLATERAL_EXCHANGE_ADDRESS, COLLATERAL_EXCHANGE_ABI, ERC20_ABI } from '../config/contracts';
+import { useState, useEffect, useCallback } from 'react';
+import { useAccount } from 'wagmi';
+import { parseEther } from 'viem';
 import { avalancheCChain } from '../config/chains';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import TokenInput from "./TokenInput";
 import { toast } from "@/components/ui/use-toast";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
-import { ArrowRight, CheckCircle, Hourglass } from "lucide-react";
+import { TransactionModal } from "./TransactionModal";
+import { useTokenContract } from '../hooks/useTokenContract';
+import { useMigrationContract } from '../hooks/useMigrationContract';
+import { formatTokenBalance, parseTokenAmount } from '../utils/tokenFormatters';
+import { COLLATERAL_EXCHANGE_ADDRESS, SCT_TOKEN_ADDRESS, RCT_TOKEN_ADDRESS } from '../config/contracts';
 
 export function TokenMigration() {
   const [amount, setAmount] = useState('');
@@ -17,8 +18,6 @@ export function TokenMigration() {
   const [needsApproval, setNeedsApproval] = useState(true);
   const [isApproving, setIsApproving] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
-  const [approveSuccess, setApproveSuccess] = useState(false);
-  const [migrationSuccess, setMigrationSuccess] = useState(false);
   const [transactionHash, setTransactionHash] = useState<string | null>(null);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [transactionStatus, setTransactionStatus] = useState<"preview" | "pending" | "success">("preview");
@@ -26,219 +25,135 @@ export function TokenMigration() {
 
   const isCorrectNetwork = chainId === avalancheCChain.id;
 
-  // Only enable contract interactions if we're on the correct network
-  const shouldEnableContracts = isConnected && isCorrectNetwork;
-
-  // @ts-ignore - Temporary fix for wagmi v2 type issues with useContractRead
-  const { data: migrationActive, isError: migrationActiveError } = useContractRead({
-    address: COLLATERAL_EXCHANGE_ADDRESS,
-    abi: COLLATERAL_EXCHANGE_ABI,
-    functionName: 'migrationActive',
-    enabled: shouldEnableContracts,
+  // Contract hooks
+  const {
+    migrationActive,
+    sctTokenAddress,
+    rctTokenAddress,
+    handleMigrate,
+    isWaitingMigrate,
+    migrateReceipt,
+    contractRctBalance,
+    sctAllowance,
+    sctBalance: contractSctBalance
+  } = useMigrationContract({
+    userAddress: address
   });
 
-  // @ts-ignore - Temporary fix for wagmi v2 type issues with useContractRead
-  const { data: sctTokenAddress, isError: sctTokenError } = useContractRead({
-    address: COLLATERAL_EXCHANGE_ADDRESS,
-    abi: COLLATERAL_EXCHANGE_ABI,
-    functionName: 'sctToken',
-    enabled: shouldEnableContracts,
+  const {
+    decimals: sctDecimals,
+    balance: sctBalance,
+    allowance,
+    approve,
+    isWaitingApprove,
+    approveReceipt,
+    refetchAllowance,
+    refetchBalance: refetchSctBalance
+  } = useTokenContract({
+    tokenAddress: SCT_TOKEN_ADDRESS as `0x${string}`,
+    spenderAddress: COLLATERAL_EXCHANGE_ADDRESS,
+    userAddress: address,
+    isScToken: true
   });
 
-  // @ts-ignore - Temporary fix for wagmi v2 type issues with useContractRead
-  const { data: allowance, refetch: refetchAllowance, isError: allowanceError } = useContractRead({
-    address: sctTokenAddress as `0x${string}`,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [address as `0x${string}`, COLLATERAL_EXCHANGE_ADDRESS],
-    enabled: Boolean(sctTokenAddress && address && shouldEnableContracts),
+  const {
+    decimals: rctDecimals,
+    balance: rctBalance,
+    refetchBalance: refetchRctBalance
+  } = useTokenContract({
+    tokenAddress: rctTokenAddress as `0x${string}`,
+    userAddress: address
   });
 
-  // @ts-ignore - Temporary fix for wagmi v2 type issues with useContractRead
-  const { data: sctDecimals, isError: sctDecimalsError } = useContractRead({
-    address: sctTokenAddress as `0x${string}`,
-    abi: ERC20_ABI,
-    functionName: 'decimals',
-    enabled: Boolean(sctTokenAddress && shouldEnableContracts),
-  });
+  // Format balances
+  const formattedSctBalance = formatTokenBalance(BigInt(sctBalance?.toString() || '0'), Number(sctDecimals));
+  const formattedRctBalance = formatTokenBalance(BigInt(rctBalance?.toString() || '0'), Number(rctDecimals));
+  const numericSctBalance = Number(formattedSctBalance);
 
-  // @ts-ignore - Temporary fix for wagmi v2 type issues with useContractRead
-  const { data: sctBalance, isError: sctBalanceError } = useContractRead({
-    address: sctTokenAddress as `0x${string}`,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: [address as `0x${string}`],
-    enabled: Boolean(sctTokenAddress && address && shouldEnableContracts),
-  });
-
-  // Format balance for display - handle potential decimal places properly
-  let formattedBalance = '0';
-  let numericBalance = 0;
-  
-  if (sctBalance) {
+  // Validate amount against balance
+  const validateAmount = useCallback((inputAmount: string): boolean => {
+    if (!sctBalance || !sctDecimals) return false;
+    
     try {
-      const balanceBigInt = BigInt(sctBalance.toString());
-      const decimals = sctDecimals ? Number(sctDecimals) : 6;
-      const divisor = BigInt(10) ** BigInt(decimals);
+      const parsedInput = parseTokenAmount(inputAmount, Number(sctDecimals));
+      const currentBalance = BigInt(sctBalance.toString());
       
-      // Manual decimal calculation
-      const wholePart = balanceBigInt / divisor;
-      const fractionalPart = balanceBigInt % divisor;
-      
-      // Format with proper decimal places
-      formattedBalance = wholePart.toString();
-      if (fractionalPart > 0n) {
-        const fractionalStr = fractionalPart.toString().padStart(decimals, '0');
-        // Remove trailing zeros
-        const trimmedFractional = fractionalStr.replace(/0+$/, '');
-        if (trimmedFractional.length > 0) {
-          formattedBalance += '.' + trimmedFractional;
-        }
+      // Additional validation for reasonable amounts
+      if (parsedInput === 0n) {
+        return false;
       }
       
-      // Convert to numeric value
-      numericBalance = Number(formattedBalance);
+      if (parsedInput > currentBalance) {
+        return false;
+      }
+      
+      return true;
     } catch (error) {
-      console.error('Error formatting balance:', error);
+      return false;
     }
-  }
+  }, [sctBalance, sctDecimals]);
+
+  // Handle amount change with validation
+  const handleAmountChange = (newAmount: string) => {
+    // Remove any non-numeric characters except decimal point
+    newAmount = newAmount.replace(/[^\d.]/g, '');
+    
+    // Ensure only one decimal point
+    const decimalCount = (newAmount.match(/\./g) || []).length;
+    if (decimalCount > 1) {
+      const parts = newAmount.split('.');
+      newAmount = parts[0] + '.' + parts.slice(1).join('');
+    }
+    
+    setAmount(newAmount);
+    
+    if (newAmount && !validateAmount(newAmount)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Amount",
+        description: `Amount exceeds your balance of ${formattedSctBalance} SCT`,
+      });
+    }
+  };
+
+  // Handle max amount
+  const handleMaxAmount = () => {
+    if (formattedSctBalance && formattedSctBalance !== '0') {
+      const maxAmount = formattedSctBalance;
+      setAmount(maxAmount);
+    }
+  };
 
   // Update parsed amount when amount changes
   useEffect(() => {
-    if (!amount) {
+    if (!amount || !sctDecimals) {
       setParsedAmount(0n);
       return;
     }
+    
     try {
-      setParsedAmount(parseEther(amount));
+      const parsedAmountBigInt = parseTokenAmount(amount, Number(sctDecimals));
+      setParsedAmount(parsedAmountBigInt);
     } catch (error) {
-      console.error('Error parsing amount:', error);
       setParsedAmount(0n);
     }
-  }, [amount]);
+  }, [amount, sctDecimals]);
 
-  // Contract writes
-  // @ts-ignore - Temporary fix for wagmi v2 type issues with useContractWrite
-  const { writeAsync: approve } = useContractWrite();
-
-  // Debug logs for contract write setup
+  // Check if approval is needed
   useEffect(() => {
-    console.log('Contract Write Debug Info:', {
-      isConnected,
-      chainId,
-      isCorrectNetwork,
-      shouldEnableContracts,
-      sctTokenAddress,
-      approve: !!approve,
-      contractConfig: {
-        functionName: 'approve',
-        abi: 'ERC20_ABI present',
-        address: sctTokenAddress,
-      }
-    });
-  }, [isConnected, chainId, isCorrectNetwork, shouldEnableContracts, sctTokenAddress, approve]);
-
-  // @ts-ignore - Temporary fix for wagmi v2 type issues with useContractWrite
-  const { writeAsync: migrate } = useContractWrite();
-
-  const [approveHash, setApproveHash] = useState<`0x${string}` | undefined>();
-  const [migrateHash, setMigrateHash] = useState<`0x${string}` | undefined>();
-
-  // Wait for transaction receipts
-  const { isLoading: isWaitingApprove } = useWaitForTransactionReceipt({
-    hash: approveHash,
-  });
-
-  // Handle transaction receipt effects
-  useEffect(() => {
-    if (approveHash && !isWaitingApprove) {
-      // Transaction completed
-      refetchAllowance();
-      setApproveSuccess(true);
-      setIsApproving(false);
-      toast({
-        title: "Approval Successful",
-        description: "You can now migrate your tokens",
-      });
-    }
-  }, [approveHash, isWaitingApprove, refetchAllowance]);
-
-  const { isLoading: isWaitingMigrate } = useWaitForTransactionReceipt({
-    hash: migrateHash,
-  });
-
-  useEffect(() => {
-    if (migrateHash && !isWaitingMigrate) {
-      // Transaction completed
-      setMigrationSuccess(true);
-      setIsMigrating(false);
-      toast({
-        title: "Migration Successful",
-        description: `Successfully migrated ${amount} SCT tokens`,
-      });
-    }
-  }, [migrateHash, isWaitingMigrate, amount]);
-
-  // Check if approval is needed whenever amount changes
-  useEffect(() => {
-    if (!amount || !allowance) {
+    if (!allowance) {
       setNeedsApproval(true);
       return;
     }
-    try {
-      const parsedAmount = parseEther(amount);
-      const currentAllowance = BigInt(allowance.toString());
-      setNeedsApproval(parsedAmount > currentAllowance);
-    } catch (error) {
-      console.error('Error checking approval:', error);
-      setNeedsApproval(true);
-    }
-  }, [amount, allowance]);
+
+    const currentAllowance = BigInt(allowance.toString());
+    const sufficientAllowance = currentAllowance >= parseTokenAmount('999999', Number(sctDecimals));
+    setNeedsApproval(!sufficientAllowance);
+  }, [allowance, sctDecimals]);
 
   // Handle approval
   const handleApprove = async () => {
-    console.log('Starting approval process...');
-    console.log('Current state:', {
-      sctTokenAddress,
-      approve: !!approve,
-      shouldEnableContracts,
-      isConnected,
-      chainId,
-      isCorrectNetwork,
-    });
-
-    if (!sctTokenAddress) {
-      console.log('Error: SCT token address not available');
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "SCT token address not available. Please try again.",
-      });
-      return;
-    }
-
-    if (!approve) {
-      console.log('Error: Contract write not available', {
-        contractDetails: {
-          functionName: 'approve',
-          abi: 'ERC20_ABI present',
-          address: sctTokenAddress,
-        }
-      });
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Contract write not available. Please try again.",
-      });
-      return;
-    }
-
-    if (!shouldEnableContracts) {
-      console.log('Error: Contracts not enabled', {
-        isConnected,
-        chainId,
-        requiredChainId: avalancheCChain.id,
-      });
+    if (!sctTokenAddress || !approve) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -249,48 +164,69 @@ export function TokenMigration() {
 
     try {
       setIsApproving(true);
-      console.log('Preparing approval transaction...', {
-        spender: COLLATERAL_EXCHANGE_ADDRESS,
-        amount: parseEther('999999999').toString(),
-      });
+      setTransactionStatus("pending");
       
-      // Call approve function
-      const { hash } = await approve({
-        address: sctTokenAddress as `0x${string}`,
-        abi: ERC20_ABI,
+      const maxApprovalAmount = parseTokenAmount('999999999', Number(sctDecimals));
+      
+      await approve({
+        abi: [{
+          constant: false,
+          inputs: [
+            { name: 'spender', type: 'address' },
+            { name: 'amount', type: 'uint256' }
+          ],
+          name: 'approve',
+          outputs: [{ name: '', type: 'bool' }],
+          payable: false,
+          stateMutability: 'nonpayable',
+          type: 'function'
+        }],
+        address: SCT_TOKEN_ADDRESS as `0x${string}`,
         functionName: 'approve',
-        args: [COLLATERAL_EXCHANGE_ADDRESS, parseEther('999999999')]
+        args: [COLLATERAL_EXCHANGE_ADDRESS, maxApprovalAmount],
+        chain: avalancheCChain,
+        account: address as `0x${string}`
       });
 
-      console.log('Approval transaction submitted:', { hash });
-      setApproveHash(hash);
-      toast({
-        title: "Approval Submitted",
-        description: "Please wait while the transaction is being processed",
-      });
     } catch (error) {
-      console.error('Approval error details:', {
-        error,
-        errorMessage: (error as BaseError).shortMessage || 'Unknown error',
-        errorName: error.name,
-        errorCause: (error as any).cause,
-      });
+      setIsApproving(false);
+      setTransactionStatus("preview");
       toast({
         variant: "destructive",
-        title: "Approval Failed",
-        description: `Failed to approve token transfer: ${(error as BaseError).shortMessage || 'Unknown error'}`,
+        title: "Error",
+        description: error instanceof Error ? error.message : 'Transaction failed',
       });
-      setIsApproving(false);
     }
   };
 
   // Handle migration
-  const handleMigrate = async () => {
-    if (!migrate) {
+  const handleMigrationStart = async () => {
+    if (!parsedAmount) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Contract write not available. Please try again.",
+        description: "Please enter an amount to migrate.",
+      });
+      return;
+    }
+
+    // Additional validation to ensure we have sufficient balance
+    const userBalance = BigInt(contractSctBalance?.toString() || '0');
+
+    if (userBalance < parsedAmount) {
+      toast({
+        variant: "destructive",
+        title: "Insufficient Balance",
+        description: `You only have ${formattedSctBalance} SCT available.`,
+      });
+      return;
+    }
+
+    if (!validateAmount(amount)) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Amount",
+        description: `Please enter an amount between 0 and ${formattedSctBalance} SCT`,
       });
       return;
     }
@@ -300,32 +236,72 @@ export function TokenMigration() {
       setIsTransactionModalOpen(true);
       setIsMigrating(true);
       
-      const { hash } = await migrate({
-        address: COLLATERAL_EXCHANGE_ADDRESS,
-        abi: COLLATERAL_EXCHANGE_ABI,
-        functionName: 'migrate',
-        args: [parsedAmount]
-      });
+      // Show confirmation modal with the exact amount that will be deducted
+      const formattedAmount = formatTokenBalance(parsedAmount, Number(sctDecimals));
 
-      setMigrateHash(hash);
-      toast({
-        title: "Migration Submitted",
-        description: "Please wait while the transaction is being processed",
-      });
+      setTransactionHash(null);
+      
+      await handleMigrate(parsedAmount);
+
     } catch (error) {
-      console.error('Migration error:', error);
+      setIsMigrating(false);
+      setTransactionStatus("preview");
+      setIsTransactionModalOpen(false);
+      
+      let errorMessage = 'Failed to migrate tokens';
+      if (error instanceof Error) {
+        if (error.message.includes('transfer amount exceeds balance')) {
+          const userBalance = BigInt(contractSctBalance?.toString() || '0');
+          const userAllowance = BigInt(sctAllowance?.toString() || '0');
+          
+          if (userBalance < parsedAmount) {
+            errorMessage = `Insufficient SCT balance. You have ${formattedSctBalance} SCT available.`;
+          } else if (userAllowance < parsedAmount) {
+            errorMessage = 'Insufficient allowance. Please approve the contract again.';
+          } else {
+            errorMessage = 'Contract error: transfer amount exceeds balance. Please try again or contact support.';
+          }
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
         variant: "destructive",
         title: "Migration Failed",
-        description: `Failed to migrate tokens: ${(error as BaseError).shortMessage || 'Unknown error'}`,
+        description: errorMessage
       });
-      setIsMigrating(false);
-      setTransactionStatus("preview");
     }
   };
 
-  const showApproveButton = Boolean(isConnected && isCorrectNetwork);
-  const showMigrateButton = Boolean(!needsApproval && amount && migrationActive && isCorrectNetwork);
+  // Monitor transaction status
+  useEffect(() => {
+    if (approveReceipt?.status === 'success') {
+      refetchAllowance();
+      setIsApproving(false);
+      setTransactionStatus("preview");
+      toast({
+        title: "Approval Successful",
+        description: "You can now migrate your tokens",
+      });
+    }
+  }, [approveReceipt, refetchAllowance]);
+
+  useEffect(() => {
+    if (migrateReceipt) {
+      if (migrateReceipt.status === 'success') {
+        refetchSctBalance();
+        refetchRctBalance();
+        setIsMigrating(false);
+        setTransactionHash(migrateReceipt.transactionHash);
+        setTransactionStatus("success");
+        toast({
+          title: "Migration Successful",
+          description: `Successfully migrated ${amount} SCT tokens to RCT`,
+        });
+      }
+    }
+  }, [migrateReceipt, amount, refetchSctBalance, refetchRctBalance]);
 
   if (!isConnected) {
     return (
@@ -369,52 +345,58 @@ export function TokenMigration() {
         </CardHeader>
         <CardContent className="space-y-4">
           <TokenInput
-            label="Amount to Migrate"
+            label="Amount to Transfer"
             value={amount}
-            onChange={setAmount}
+            onChange={handleAmountChange}
             token={{ symbol: "SCT", name: "Staking Collateral Token" }}
-            balance={numericBalance}
+            balance={numericSctBalance}
             disabled={isMigrating || isApproving || !migrationActive}
+            onMaxClick={handleMaxAmount}
           />
 
-          {isConnected && (
-            <div className="bg-gray-900 rounded-md p-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Migration Status</span>
-                <span className="text-white">
-                  {migrationActive ? 'Active' : 'Inactive'}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm mt-1">
-                <span className="text-gray-400">SCT Balance</span>
-                <span className="text-white">
-                  {formattedBalance} SCT
-                  {sctBalanceError && (
-                    <span className="text-red-500 ml-2">(Error loading balance)</span>
-                  )}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm mt-1">
-                <span className="text-gray-400">Current Allowance</span>
-                <span className="text-white">
-                  {allowance ? formatEther(BigInt(allowance.toString())) : '0'} SCT
-                </span>
-              </div>
+          <div className="bg-gray-900 rounded-md p-3">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-400">Migration Status</span>
+              <span className="text-white">
+                {migrationActive ? 'Active' : 'Inactive'}
+              </span>
             </div>
-          )}
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-gray-400">SCT Balance</span>
+              <span className="text-white">{formattedSctBalance} SCT</span>
+            </div>
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-gray-400">RCT Balance</span>
+              <span className="text-white">{formattedRctBalance} RCT</span>
+            </div>
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-gray-400">Contract RCT Balance</span>
+              <span className="text-white">
+                {contractRctBalance ? formatTokenBalance(BigInt(contractRctBalance.toString()), Number(rctDecimals)) : '0'} RCT
+              </span>
+            </div>
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-gray-400">Current Allowance</span>
+              <span className="text-white">
+                {sctAllowance ? formatTokenBalance(BigInt(sctAllowance.toString()), Number(sctDecimals)) : '0'} SCT
+              </span>
+            </div>
+          </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-2">
-          <Button
-            onClick={handleApprove}
-            disabled={isApproving}
-            className="w-full bg-white text-black hover:bg-gray-200 transition-colors"
-          >
-            {isApproving ? 'Approving...' : 'Approve SCT'}
-          </Button>
-          {showMigrateButton && (
+          {isConnected && isCorrectNetwork && needsApproval && !isApproving && (
             <Button
-              onClick={handleMigrate}
-              disabled={isMigrating}
+              onClick={handleApprove}
+              disabled={isApproving}
+              className="w-full bg-white text-black hover:bg-gray-200 transition-colors"
+            >
+              {isApproving ? 'Approving...' : 'Approve SCT'}
+            </Button>
+          )}
+          {isConnected && isCorrectNetwork && !needsApproval && migrationActive && !isMigrating && (
+            <Button
+              onClick={handleMigrationStart}
+              disabled={isMigrating || !validateAmount(amount)}
               className="w-full bg-white text-black hover:bg-gray-200 transition-colors"
             >
               {isMigrating ? 'Migrating...' : 'Migrate Tokens'}
@@ -423,84 +405,19 @@ export function TokenMigration() {
         </CardFooter>
       </Card>
 
-      <Dialog open={isTransactionModalOpen} onOpenChange={setIsTransactionModalOpen}>
-        <DialogContent className="sm:max-w-[400px] bg-black border-gray-800 text-white">
-          <DialogHeader>
-            <DialogTitle>
-              {transactionStatus === "preview" && "Confirm Migration"}
-              {transactionStatus === "pending" && "Transaction Pending"}
-              {transactionStatus === "success" && "Transaction Success"}
-            </DialogTitle>
-            <DialogDescription className="text-gray-400">
-              {transactionStatus === "preview" && "Review your migration details before confirming"}
-              {transactionStatus === "pending" && "Please wait while your transaction is being processed"}
-              {transactionStatus === "success" && "Your migration has been successfully completed"}
-            </DialogDescription>
-          </DialogHeader>
-
-          {transactionStatus === "success" ? (
-            <div className="flex flex-col items-center justify-center py-6 space-y-4">
-              <div className="h-16 w-16 rounded-full bg-green-900 flex items-center justify-center">
-                <CheckCircle className="h-8 w-8 text-green-500" />
-              </div>
-              <p className="text-center text-sm">
-                Successfully migrated {amount} SCT tokens
-                {transactionHash && (
-                  <div className="mt-2 text-xs text-gray-400">
-                    Transaction Hash: {transactionHash}
-                  </div>
-                )}
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-4 py-4">
-                <div className="flex justify-between items-center px-1">
-                  <div className="flex items-center">
-                    <div className="w-6 h-6 rounded-full bg-white mr-2"></div>
-                    <p className="font-medium">{amount} SCT</p>
-                  </div>
-                  <p className="text-sm text-gray-400">From</p>
-                </div>
-                
-                <div className="flex justify-center">
-                  <ArrowRight className="text-gray-400" />
-                </div>
-                
-                <div className="flex justify-between items-center px-1">
-                  <div className="flex items-center">
-                    <div className="w-6 h-6 rounded-full bg-gray-700 mr-2"></div>
-                    <p className="font-medium">{amount} RCT</p>
-                  </div>
-                  <p className="text-sm text-gray-400">To</p>
-                </div>
-                
-                <Separator className="bg-gray-800" />
-              </div>
-
-              <DialogFooter>
-                {transactionStatus === "preview" ? (
-                  <>
-                    <Button variant="outline" onClick={() => setIsTransactionModalOpen(false)} className="w-full sm:w-auto border-gray-700 text-white hover:bg-gray-800">
-                      Cancel
-                    </Button>
-                    <Button onClick={needsApproval ? handleApprove : handleMigrate} className="w-full sm:w-auto bg-white text-black hover:bg-gray-200">
-                      Confirm {needsApproval ? 'Approval' : 'Migration'}
-                    </Button>
-                  </>
-                ) : (
-                  <div className="w-full flex justify-center">
-                    <div className="flex items-center justify-center space-x-2 text-gray-400">
-                      <Hourglass className="h-4 w-4 animate-spin" />
-                      <span>Processing transaction...</span>
-                    </div>
-                  </div>
-                )}
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <TransactionModal
+        isOpen={isTransactionModalOpen}
+        onOpenChange={setIsTransactionModalOpen}
+        status={transactionStatus}
+        fromAmount={amount}
+        fromToken="SCT"
+        toAmount={amount}
+        toToken="RCT"
+        transactionHash={transactionHash}
+        onConfirm={needsApproval ? handleApprove : handleMigrationStart}
+        onCancel={() => setIsTransactionModalOpen(false)}
+        needsApproval={needsApproval}
+      />
     </>
   );
 } 
