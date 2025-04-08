@@ -1,4 +1,3 @@
-
 import type { Config } from "tailwindcss";
 
 export default {
@@ -64,7 +63,6 @@ export default {
 					ring: 'hsl(var(--sidebar-ring))'
 				},
 				defi: {
-					purple: '#8A2BE2',
 					blue: '#4169E1',
 					dark: '#1A1A2E',
 					light: '#F8F9FA'
@@ -106,7 +104,7 @@ export default {
 				sans: ['Montserrat', 'sans-serif'],
 			},
 			backgroundImage: {
-				'gradient-defi': 'linear-gradient(135deg, #8A2BE2 0%, #4169E1 100%)',
+				'gradient-defi': 'linear-gradient(135deg, #4169E1 0%, #4169E1 100%)',
 			}
 		}
 	},

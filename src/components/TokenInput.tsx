@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,10 +44,8 @@ const TokenInput: React.FC<TokenInputProps> = ({
           className="text-lg font-medium bg-gray-800 border-gray-700 text-white"
           disabled={disabled}
         />
-        <div className="flex items-center bg-gray-800 rounded-md px-3 py-2 min-w-24 cursor-pointer">
-          <div className="w-5 h-5 rounded-full bg-white mr-2"></div>
+        <div className="flex items-center bg-gray-800 rounded-md px-2 py-2 min-w-[60px] justify-center">
           <span className="font-medium text-sm text-white">{token.symbol}</span>
-          <ChevronDown className="ml-1 h-4 w-4 text-gray-400" />
         </div>
       </div>
     </Card>

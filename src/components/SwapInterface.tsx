@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -99,27 +98,29 @@ const SwapInterface: React.FC = () => {
           <CardDescription className="text-gray-400">Exchange Staking tokens for RESAL tokens</CardDescription>
         </CardHeader>
         <CardContent className="relative">
-          <TokenInput
-            label="From"
-            value={fromAmount}
-            onChange={handleFromAmountChange}
-            token={fromToken}
-            balance={isConnected ? fromBalance : undefined}
-            disabled={!isConnected}
-          />
-          
-          <div className="h-10" />
-          
-          <SwapButton />
-          
-          <TokenInput
-            label="To"
-            value={toAmount}
-            onChange={handleToAmountChange}
-            token={toToken}
-            balance={isConnected ? toBalance : undefined}
-            disabled={true} // Always disable "to" input
-          />
+          <div className="space-y-2">
+            <TokenInput
+              label="From"
+              value={fromAmount}
+              onChange={handleFromAmountChange}
+              token={fromToken}
+              balance={isConnected ? fromBalance : undefined}
+              disabled={!isConnected}
+            />
+            
+            <div className="flex justify-center py-1">
+              <SwapButton />
+            </div>
+            
+            <TokenInput
+              label="To"
+              value={toAmount}
+              onChange={handleToAmountChange}
+              token={toToken}
+              balance={isConnected ? toBalance : undefined}
+              disabled={true} // Always disable "to" input
+            />
+          </div>
 
           {isConnected && fromAmount && toAmount && (
             <div className="mt-4 bg-gray-900 rounded-md p-3">
