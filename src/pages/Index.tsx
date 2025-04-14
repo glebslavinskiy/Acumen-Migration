@@ -11,7 +11,7 @@ const Index = () => {
             Token Migration
           </h1>
           <p className="text-gray-400 max-w-md mb-4">
-            Migrate your Staking Collateral Token (SCT) to RESAL Collateral Token (RCT)
+            Migrate your RESAL Collateral Token (RCT) to RESAL Collateral Token V2 (RCTv2)
           </p>
         </header>
         

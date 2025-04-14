@@ -1,6 +1,7 @@
-export const COLLATERAL_EXCHANGE_ADDRESS = '0xA1213dD9280A71fF2786ADB9379193f97961C9B2';
-export const SCT_TOKEN_ADDRESS = '0xdEd06f2081896a8693B724e1ffA4935631ef1539';
+export const COLLATERAL_EXCHANGE_ADDRESS = '0x45b93287702ab46E0974DA4E81cBAB82592c7B12';
+export const SCT_TOKEN_ADDRESS = '0x398cbF4C39796c18F40F74df2750719bCC68C4f9';
 export const RCT_TOKEN_ADDRESS = '0x398cbF4C39796c18F40F74df2750719bCC68C4f9';
+export const RCTV2_TOKEN_ADDRESS = '0xb558d97A64DFdF2B366F38CcE7e4A950d2F1a74f';
 
 export const ERC20_ABI = [
   // Read-only functions
@@ -144,6 +145,13 @@ export const COLLATERAL_EXCHANGE_ABI = [
     ],
     name: 'MigrationCompleted',
     type: 'event'
+  },
+  {
+    inputs: [{ name: 'token', type: 'address' }],
+    name: 'rescueTokens',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function'
   }
 ];
 

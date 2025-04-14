@@ -4,13 +4,14 @@ import { parseEther } from 'viem';
 import { avalancheCChain } from '../config/chains';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import TokenInput from "./TokenInput";
 import { toast } from "@/components/ui/use-toast";
 import { TransactionModal } from "./TransactionModal";
 import { useTokenContract } from '../hooks/useTokenContract';
 import { useMigrationContract } from '../hooks/useMigrationContract';
 import { formatTokenBalance, parseTokenAmount } from '../utils/tokenFormatters';
-import { COLLATERAL_EXCHANGE_ADDRESS, SCT_TOKEN_ADDRESS, RCT_TOKEN_ADDRESS } from '../config/contracts';
+import { COLLATERAL_EXCHANGE_ADDRESS, RCT_TOKEN_ADDRESS, RCTV2_TOKEN_ADDRESS } from '../config/contracts';
 
 export function TokenMigration() {
   const [amount, setAmount] = useState('');
@@ -22,61 +23,63 @@ export function TokenMigration() {
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [transactionStatus, setTransactionStatus] = useState<"preview" | "pending" | "success">("preview");
   const [parsedAmount, setParsedAmount] = useState<bigint>(0n);
+  const [isWaitingForAllowance, setIsWaitingForAllowance] = useState(false);
 
   const isCorrectNetwork = chainId === avalancheCChain.id;
 
   // Contract hooks
   const {
     migrationActive,
-    sctTokenAddress,
-    rctTokenAddress,
+    fromTokenAddress,
+    toTokenAddress,
     handleMigrate,
     isWaitingMigrate,
     migrateReceipt,
-    contractRctBalance,
-    sctAllowance,
-    sctBalance: contractSctBalance
+    contractToBalance,
+    fromAllowance,
+    fromBalance: contractFromBalance
   } = useMigrationContract({
     userAddress: address
   });
 
+  // RCT (from) token contract
   const {
-    decimals: sctDecimals,
-    balance: sctBalance,
+    decimals: rctDecimals,
+    balance: rctBalance,
     allowance,
     approve,
     isWaitingApprove,
     approveReceipt,
     refetchAllowance,
-    refetchBalance: refetchSctBalance
-  } = useTokenContract({
-    tokenAddress: SCT_TOKEN_ADDRESS as `0x${string}`,
-    spenderAddress: COLLATERAL_EXCHANGE_ADDRESS,
-    userAddress: address,
-    isScToken: true
-  });
-
-  const {
-    decimals: rctDecimals,
-    balance: rctBalance,
     refetchBalance: refetchRctBalance
   } = useTokenContract({
-    tokenAddress: rctTokenAddress as `0x${string}`,
+    tokenAddress: RCT_TOKEN_ADDRESS as `0x${string}`,
+    spenderAddress: COLLATERAL_EXCHANGE_ADDRESS,
+    userAddress: address
+  });
+
+  // RCTv2 (to) token contract
+  const {
+    decimals: rctv2Decimals,
+    balance: rctv2Balance,
+    refetchBalance: refetchRctv2Balance
+  } = useTokenContract({
+    tokenAddress: RCTV2_TOKEN_ADDRESS as `0x${string}`,
     userAddress: address
   });
 
   // Format balances
-  const formattedSctBalance = formatTokenBalance(BigInt(sctBalance?.toString() || '0'), Number(sctDecimals));
   const formattedRctBalance = formatTokenBalance(BigInt(rctBalance?.toString() || '0'), Number(rctDecimals));
-  const numericSctBalance = Number(formattedSctBalance);
+  const formattedRctv2Balance = formatTokenBalance(BigInt(rctv2Balance?.toString() || '0'), Number(rctv2Decimals));
+  const numericRctBalance = Number(formattedRctBalance);
 
   // Validate amount against balance
   const validateAmount = useCallback((inputAmount: string): boolean => {
-    if (!sctBalance || !sctDecimals) return false;
+    if (!rctBalance || !rctDecimals) return false;
     
     try {
-      const parsedInput = parseTokenAmount(inputAmount, Number(sctDecimals));
-      const currentBalance = BigInt(sctBalance.toString());
+      const parsedInput = parseTokenAmount(inputAmount, Number(rctDecimals));
+      const currentBalance = BigInt(rctBalance.toString());
       
       // Additional validation for reasonable amounts
       if (parsedInput === 0n) {
@@ -91,7 +94,7 @@ export function TokenMigration() {
     } catch (error) {
       return false;
     }
-  }, [sctBalance, sctDecimals]);
+  }, [rctBalance, rctDecimals]);
 
   // Handle amount change with validation
   const handleAmountChange = (newAmount: string) => {
@@ -111,33 +114,33 @@ export function TokenMigration() {
       toast({
         variant: "destructive",
         title: "Invalid Amount",
-        description: `Amount exceeds your balance of ${formattedSctBalance} SCT`,
+        description: `Amount exceeds your balance of ${formattedRctBalance} RCT`,
       });
     }
   };
 
   // Handle max amount
   const handleMaxAmount = () => {
-    if (formattedSctBalance && formattedSctBalance !== '0') {
-      const maxAmount = formattedSctBalance;
+    if (formattedRctBalance && formattedRctBalance !== '0') {
+      const maxAmount = formattedRctBalance;
       setAmount(maxAmount);
     }
   };
 
   // Update parsed amount when amount changes
   useEffect(() => {
-    if (!amount || !sctDecimals) {
+    if (!amount || !rctDecimals) {
       setParsedAmount(0n);
       return;
     }
     
     try {
-      const parsedAmountBigInt = parseTokenAmount(amount, Number(sctDecimals));
+      const parsedAmountBigInt = parseTokenAmount(amount, Number(rctDecimals));
       setParsedAmount(parsedAmountBigInt);
     } catch (error) {
       setParsedAmount(0n);
     }
-  }, [amount, sctDecimals]);
+  }, [amount, rctDecimals]);
 
   // Check if approval is needed
   useEffect(() => {
@@ -147,13 +150,24 @@ export function TokenMigration() {
     }
 
     const currentAllowance = BigInt(allowance.toString());
-    const sufficientAllowance = currentAllowance >= parseTokenAmount('999999', Number(sctDecimals));
+    const sufficientAllowance = currentAllowance >= parseTokenAmount('999999', Number(rctDecimals));
     setNeedsApproval(!sufficientAllowance);
-  }, [allowance, sctDecimals]);
+    
+    // If we have sufficient allowance and were waiting for it, stop waiting
+    if (sufficientAllowance && isWaitingForAllowance) {
+      setIsWaitingForAllowance(false);
+      setIsApproving(false);
+      setTransactionStatus("preview");
+      toast({
+        title: "Approval Successful",
+        description: "You can now migrate your tokens",
+      });
+    }
+  }, [allowance, rctDecimals, isWaitingForAllowance]);
 
   // Handle approval
   const handleApprove = async () => {
-    if (!sctTokenAddress || !approve) {
+    if (!fromTokenAddress || !approve) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -164,9 +178,10 @@ export function TokenMigration() {
 
     try {
       setIsApproving(true);
+      setIsWaitingForAllowance(true);
       setTransactionStatus("pending");
       
-      const maxApprovalAmount = parseTokenAmount('999999999', Number(sctDecimals));
+      const maxApprovalAmount = parseTokenAmount('999999999', Number(rctDecimals));
       
       await approve({
         abi: [{
@@ -181,7 +196,7 @@ export function TokenMigration() {
           stateMutability: 'nonpayable',
           type: 'function'
         }],
-        address: SCT_TOKEN_ADDRESS as `0x${string}`,
+        address: RCT_TOKEN_ADDRESS as `0x${string}`,
         functionName: 'approve',
         args: [COLLATERAL_EXCHANGE_ADDRESS, maxApprovalAmount],
         chain: avalancheCChain,
@@ -190,6 +205,7 @@ export function TokenMigration() {
 
     } catch (error) {
       setIsApproving(false);
+      setIsWaitingForAllowance(false);
       setTransactionStatus("preview");
       toast({
         variant: "destructive",
@@ -211,13 +227,13 @@ export function TokenMigration() {
     }
 
     // Additional validation to ensure we have sufficient balance
-    const userBalance = BigInt(contractSctBalance?.toString() || '0');
+    const userBalance = BigInt(contractFromBalance?.toString() || '0');
 
     if (userBalance < parsedAmount) {
       toast({
         variant: "destructive",
         title: "Insufficient Balance",
-        description: `You only have ${formattedSctBalance} SCT available.`,
+        description: `You only have ${formattedRctBalance} RCT available.`,
       });
       return;
     }
@@ -226,7 +242,7 @@ export function TokenMigration() {
       toast({
         variant: "destructive",
         title: "Invalid Amount",
-        description: `Please enter an amount between 0 and ${formattedSctBalance} SCT`,
+        description: `Please enter an amount between 0 and ${formattedRctBalance} RCT`,
       });
       return;
     }
@@ -237,7 +253,7 @@ export function TokenMigration() {
       setIsMigrating(true);
       
       // Show confirmation modal with the exact amount that will be deducted
-      const formattedAmount = formatTokenBalance(parsedAmount, Number(sctDecimals));
+      const formattedAmount = formatTokenBalance(parsedAmount, Number(rctDecimals));
 
       setTransactionHash(null);
       
@@ -251,11 +267,11 @@ export function TokenMigration() {
       let errorMessage = 'Failed to migrate tokens';
       if (error instanceof Error) {
         if (error.message.includes('transfer amount exceeds balance')) {
-          const userBalance = BigInt(contractSctBalance?.toString() || '0');
-          const userAllowance = BigInt(sctAllowance?.toString() || '0');
+          const userBalance = BigInt(contractFromBalance?.toString() || '0');
+          const userAllowance = BigInt(fromAllowance?.toString() || '0');
           
           if (userBalance < parsedAmount) {
-            errorMessage = `Insufficient SCT balance. You have ${formattedSctBalance} SCT available.`;
+            errorMessage = `Insufficient RCT balance. You have ${formattedRctBalance} RCT available.`;
           } else if (userAllowance < parsedAmount) {
             errorMessage = 'Insufficient allowance. Please approve the contract again.';
           } else {
@@ -278,37 +294,33 @@ export function TokenMigration() {
   useEffect(() => {
     if (approveReceipt?.status === 'success') {
       refetchAllowance();
-      setIsApproving(false);
-      setTransactionStatus("preview");
-      toast({
-        title: "Approval Successful",
-        description: "You can now migrate your tokens",
-      });
+      // Note: We don't reset isApproving or isWaitingForAllowance here
+      // They will be reset when the allowance check confirms the sufficient amount
     }
   }, [approveReceipt, refetchAllowance]);
 
   useEffect(() => {
     if (migrateReceipt) {
       if (migrateReceipt.status === 'success') {
-        refetchSctBalance();
         refetchRctBalance();
+        refetchRctv2Balance();
         setIsMigrating(false);
         setTransactionHash(migrateReceipt.transactionHash);
         setTransactionStatus("success");
         toast({
           title: "Migration Successful",
-          description: `Successfully migrated ${amount} SCT tokens to RCT`,
+          description: `Successfully migrated ${amount} RCT tokens to RCTv2`,
         });
       }
     }
-  }, [migrateReceipt, amount, refetchSctBalance, refetchRctBalance]);
+  }, [migrateReceipt, amount, refetchRctBalance, refetchRctv2Balance]);
 
   if (!isConnected) {
     return (
       <Card className="w-full max-w-md mx-auto bg-black border border-gray-800 text-white">
         <CardHeader>
           <CardTitle className="text-xl text-white">Token Migration</CardTitle>
-          <CardDescription className="text-gray-400">Migrate your SCT tokens to RCT</CardDescription>
+          <CardDescription className="text-gray-400">Migrate your RCT tokens to RCTv2</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8">
@@ -341,15 +353,15 @@ export function TokenMigration() {
       <Card className="w-full max-w-md mx-auto bg-black border border-gray-800 text-white">
         <CardHeader>
           <CardTitle className="text-xl text-white">Token Migration</CardTitle>
-          <CardDescription className="text-gray-400">Migrate your SCT tokens to RCT</CardDescription>
+          <CardDescription className="text-gray-400">Migrate your RCT tokens to RCTv2</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <TokenInput
             label="Amount to Transfer"
             value={amount}
             onChange={handleAmountChange}
-            token={{ symbol: "SCT", name: "Staking Collateral Token" }}
-            balance={numericSctBalance}
+            token={{ symbol: "RCT", name: "RESAL Collateral Token" }}
+            balance={numericRctBalance}
             disabled={isMigrating || isApproving || !migrationActive}
             onMaxClick={handleMaxAmount}
           />
@@ -362,44 +374,58 @@ export function TokenMigration() {
               </span>
             </div>
             <div className="flex justify-between text-sm mt-1">
-              <span className="text-gray-400">SCT Balance</span>
-              <span className="text-white">{formattedSctBalance} SCT</span>
-            </div>
-            <div className="flex justify-between text-sm mt-1">
               <span className="text-gray-400">RCT Balance</span>
               <span className="text-white">{formattedRctBalance} RCT</span>
             </div>
             <div className="flex justify-between text-sm mt-1">
-              <span className="text-gray-400">Contract RCT Balance</span>
+              <span className="text-gray-400">RCTv2 Balance</span>
+              <span className="text-white">{formattedRctv2Balance} RCTv2</span>
+            </div>
+            <div className="flex justify-between text-sm mt-1">
+              <span className="text-gray-400">Contract RCTv2 Balance</span>
               <span className="text-white">
-                {contractRctBalance ? formatTokenBalance(BigInt(contractRctBalance.toString()), Number(rctDecimals)) : '0'} RCT
+                {contractToBalance ? formatTokenBalance(BigInt(contractToBalance.toString()), Number(rctv2Decimals)) : '0'} RCTv2
               </span>
             </div>
             <div className="flex justify-between text-sm mt-1">
               <span className="text-gray-400">Current Allowance</span>
               <span className="text-white">
-                {sctAllowance ? formatTokenBalance(BigInt(sctAllowance.toString()), Number(sctDecimals)) : '0'} SCT
+                {allowance ? formatTokenBalance(BigInt(allowance.toString()), Number(rctDecimals)) : '0'} RCT
               </span>
             </div>
           </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-2">
-          {isConnected && isCorrectNetwork && needsApproval && !isApproving && (
+          {isConnected && isCorrectNetwork && (needsApproval || isWaitingForAllowance) && (
             <Button
               onClick={handleApprove}
-              disabled={isApproving}
+              disabled={isApproving || isWaitingForAllowance}
               className="w-full bg-white text-black hover:bg-gray-200 transition-colors"
             >
-              {isApproving ? 'Approving...' : 'Approve SCT'}
+              {(isApproving || isWaitingForAllowance) ? (
+                <div className="flex items-center justify-center gap-2">
+                  <Spinner className="border-black border-r-transparent" />
+                  <span>Approving...</span>
+                </div>
+              ) : (
+                'Approve RCT'
+              )}
             </Button>
           )}
-          {isConnected && isCorrectNetwork && !needsApproval && migrationActive && !isMigrating && (
+          {isConnected && isCorrectNetwork && !needsApproval && !isWaitingForAllowance && migrationActive && !isMigrating && (
             <Button
               onClick={handleMigrationStart}
               disabled={isMigrating || !validateAmount(amount)}
               className="w-full bg-white text-black hover:bg-gray-200 transition-colors"
             >
-              {isMigrating ? 'Migrating...' : 'Migrate Tokens'}
+              {isMigrating ? (
+                <div className="flex items-center justify-center gap-2">
+                  <Spinner className="border-black border-r-transparent" />
+                  <span>Migrating...</span>
+                </div>
+              ) : (
+                'Migrate Tokens'
+              )}
             </Button>
           )}
         </CardFooter>
@@ -410,9 +436,9 @@ export function TokenMigration() {
         onOpenChange={setIsTransactionModalOpen}
         status={transactionStatus}
         fromAmount={amount}
-        fromToken="SCT"
+        fromToken="RCT"
         toAmount={amount}
-        toToken="RCT"
+        toToken="RCTv2"
         transactionHash={transactionHash}
         onConfirm={needsApproval ? handleApprove : handleMigrationStart}
         onCancel={() => setIsTransactionModalOpen(false)}

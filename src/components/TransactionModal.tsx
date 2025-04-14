@@ -59,7 +59,7 @@ export function TransactionModal({
       preview: {
         title: needsApproval ? "Approve Token Transfer" : "Confirm Migration",
         description: needsApproval 
-          ? "Please approve the contract to spend your tokens"
+          ? "Please approve the contract to spend your RCT tokens"
           : `You are about to migrate ${fromAmount} ${fromToken} to ${toAmount} ${toToken}. This action cannot be undone.`,
         showButtons: true
       },
